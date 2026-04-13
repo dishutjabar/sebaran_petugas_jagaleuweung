@@ -13,6 +13,20 @@
 body { margin:0; font-family:Arial; }
 #map { height:100vh; }
 
+.title{
+position:absolute;
+top:10px;
+left:50%;
+transform:translateX(-50%);
+background:white;
+padding:10px 20px;
+border-radius:10px;
+z-index:1000;
+font-weight:bold;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
+}
+
+/* PANEL FILTER */
 .panel-filter{
 position:absolute;
 top:10px;
@@ -22,39 +36,65 @@ padding:15px;
 border-radius:12px;
 width:260px;
 z-index:1000;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
+}
+
+/* PANEL STAT */
+.panel-stat{
+position:absolute;
+right:10px;
+bottom:10px;
+background:white;
+padding:15px;
+border-radius:12px;
+width:260px;
+z-index:1000;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
 }
 
 select,input,button{
 width:100%;
 margin-top:5px;
 padding:6px;
+border-radius:6px;
 }
 
+/* LEGEND */
 .legend{
 position:absolute;
-top:10px;
+top:80px;
 right:10px;
 background:white;
 padding:10px;
+border-radius:10px;
 z-index:1000;
+box-shadow:0 0 5px rgba(0,0,0,0.3);
+}
+.legend div{cursor:pointer;margin-bottom:5px;}
+
+/* POPUP */
+.popup-scroll{
+max-height:250px;
+overflow-y:auto;
+font-size:13px;
 }
 </style>
 </head>
 <body>
 
+<div class="title">Sebaran Petugas Jaga Leuweung Tahun 2026</div>
 <div id="map"></div>
 
 <div class="panel-filter">
-<b>Filter Data</b>
-
-<select id="filterKab"><option value="all">Semua Kabupaten</option></select>
-<select id="filterKec"><option value="all">Semua Kecamatan</option></select>
-<select id="filterDesa"><option value="all">Semua Desa</option></select>
-
-<input type="text" id="searchNama" placeholder="Cari...">
-
-<button onclick="applyFilter()">Cari</button>
+<b>Search</b>
+<input type="text" id="search" placeholder="Kabupaten / CDK / Penyuluh">
+<button onclick="applySearch()">Cari</button>
 <button onclick="resetFilter()">Reset</button>
+</div>
+
+<div class="panel-stat">
+<b>Total Titik:</b> <span id="total">0</span>
+<canvas id="chart"></canvas>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -63,140 +103,181 @@ z-index:1000;
 
 // ================= MAP =================
 var map = L.map('map').setView([-6.9,107.6],8);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+// BASEMAP
+var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+var satelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+var terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');
+
+osm.addTo(map);
+
+L.control.layers({
+"OSM": osm,
+"Satelit": satelit,
+"Terrain": terrain
+}).addTo(map);
 
 // ================= GLOBAL =================
 let allData;
 let markersLayer = L.layerGroup().addTo(map);
+let chart;
 
 let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
 
-let selectedKab=null, selectedKec=null, selectedDesa=null, keyword="";
+let selectedKab = null;
+let keyword = "";
 
 // ================= HELPER =================
-function fix(v){ return parseFloat(String(v||"").replace(",",".")); }
+function fix(v){
+return parseFloat(String(v||"").replace(",",".")) || null;
+}
 
-function norm(t){
+function isi(v){
+return (v==null||v=="")?"-":v;
+}
+
+function normalize(t){
 return (t||"").toLowerCase().replace(/kabupaten|kota/g,"").trim();
 }
 
-function isi(v){ return v||"-"; }
+// ================= COLOR =================
+function getColor(c){
+return {
+"CDK I":"red","CDK II":"blue","CDK III":"green",
+"CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
+"CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
+}[c]||"black";
+}
 
-// ================= LOAD =================
+// ================= LOAD DATA =================
 fetch("Jaga.geojson")
 .then(r=>r.json())
 .then(d=>{
 allData = d.features;
-initFilter();
 updateMap();
 });
 
-// ================= FILTER INIT =================
-function initFilter(){
+// ================= LOAD POLYGON =================
+fetch("Jawa Barattt.geojson")
+.then(r=>r.json())
+.then(data=>{
 
-let kab=new Set(),kec=new Set(),desa=new Set();
+L.geoJSON(data,{
+style:{color:"black",weight:1,fillOpacity:0.1},
 
-allData.forEach(f=>{
-let p=f.properties;
-kab.add(p.Kabupaten);
-kec.add(p.Kecamatan);
-desa.add(p.Desa);
-});
+onEachFeature:(f,l)=>{
 
-isiSelect("filterKab",kab);
-isiSelect("filterKec",kec);
-isiSelect("filterDesa",desa);
-}
+let kab = f.properties.KAB_KOTA;
 
-function isiSelect(id,set){
-let el=document.getElementById(id);
-set.forEach(v=>{
-let o=document.createElement("option");
-o.value=v;
-o.innerHTML=v;
-el.appendChild(o);
+l.bindPopup("<b>"+kab+"</b>");
+
+l.on("click",()=>{
+selectedKab = normalize(kab);
+updateMap();
+map.fitBounds(l.getBounds());
 });
 }
+}).addTo(map);
 
-// ================= APPLY FILTER =================
-function applyFilter(){
-selectedKab = filterKab.value;
-selectedKec = filterKec.value;
-selectedDesa = filterDesa.value;
-keyword = searchNama.value.toLowerCase();
-updateMap();
-}
+});
 
-function resetFilter(){
-selectedKab=selectedKec=selectedDesa=null;
-keyword="";
-document.querySelectorAll("select").forEach(s=>s.value="all");
-searchNama.value="";
-updateMap();
-}
-
-// ================= UPDATE =================
+// ================= UPDATE MAP =================
 function updateMap(){
 
 markersLayer.clearLayers();
 
 let grouped = {};
+let countCDK = {};
+let total = 0;
 
-// LOOP DATA
 allData.forEach(f=>{
 
-let p=f.properties;
+let p = f.properties;
 
-let lat=fix(p["Koordinat Desa (Latitude)"]);
-let lon=fix(p["Koordinat Desa (Longitude)"]);
-if(!lat||!lon) return;
+let lat = fix(p["Koordinat Desa (Latitude)"]);
+let lon = fix(p["Koordinat Desa (Longitude)"]);
 
-// FILTER
-if(selectedKab && selectedKab!="all" && p.Kabupaten!==selectedKab) return;
-if(selectedKec && selectedKec!="all" && p.Kecamatan!==selectedKec) return;
-if(selectedDesa && selectedDesa!="all" && p.Desa!==selectedDesa) return;
+if(!lat || !lon) return;
+
+// FILTER KAB
+if(selectedKab){
+if(normalize(p.Kabupaten) !== selectedKab) return;
+}
+
+// FILTER CDK
 if(!activeCDK.includes(p.CDK)) return;
 
-let text = JSON.stringify(p).toLowerCase();
+// SEARCH
+let text = (
+(p.Kabupaten || "") + " " +
+(p.CDK || "") + " " +
+(p["Penyuluh Kehutanan Pendamping"] || "tidak ada penyuluh")
+).toLowerCase();
+
 if(keyword && !text.includes(keyword)) return;
 
-// ================= GROUP RULE =================
+// ================= GROUPING =================
 let penyuluh = p["Penyuluh Kehutanan Pendamping"];
 
-// kalau tidak ada penyuluh → unik
 let key;
 
 if(!penyuluh){
-key = Math.random(); // tampil sendiri
+key = "single_" + Math.random();
 }else{
-key = penyuluh + "_" + p.CDK; // pisah kalau CDK beda
+key = penyuluh + "_" + p.CDK;
 }
 
-if(!grouped[key]) grouped[key]=[];
+if(!grouped[key]) grouped[key] = [];
 
 grouped[key].push({...p,lat,lon});
+
+// STAT
+countCDK[p.CDK] = (countCDK[p.CDK]||0)+1;
+total++;
 });
 
 // ================= DRAW =================
 Object.values(grouped).forEach(group=>{
 
-let lat=group[0].lat;
-let lon=group[0].lon;
+let lat = group[0].lat;
+let lon = group[0].lon;
 
-let html="<div style='max-height:250px;overflow:auto'>";
+let html = `<div class="popup-scroll">`;
 
 group.forEach(p=>{
-html+=`
+
+html += `
 <hr>
 <b>Nama:</b> ${isi(p.Nama)}<br>
 <b>NIK:</b> ${isi(p.NIK)}<br>
-<b>Usia:</b> ${isi(p["Usia (Tahun)"])}<br>
+<b>Usia:</b> ${isi(p["Usia (Tahun)"])} tahun<br>
+<b>Alamat:</b> ${isi(p.Alamat)}<br>
+<b>Desa:</b> ${isi(p.Desa)}<br>
+<b>Kecamatan:</b> ${isi(p.Kecamatan)}<br>
 <b>Kabupaten:</b> ${isi(p.Kabupaten)}<br>
+
+<br><b>Koordinat Desa:</b><br>
+Lat: ${isi(p["Koordinat Desa (Latitude)"])}<br>
+Long: ${isi(p["Koordinat Desa (Longitude)"])}<br>
+
+<br><b>Koordinat Calon Lokasi Persemaian:</b><br>
+X: ${isi(p["Koordinat Calon Lokasi Persemaian (X)"])}<br>
+Y: ${isi(p["Koordinat Calon Lokasi Persemaian (Y)"])}<br>
+
+<br><b>Koordinat Calon Lokasi Penanaman:</b><br>
+X: ${isi(p["Koordinat Calon Lokasi Penanaman (X)"])}<br>
+Y: ${isi(p["Koordinat Calon Lokasi Penanaman (Y)"])}<br>
+
+<br><b>Penyuluh Kehutanan Pendamping:</b> ${isi(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh")}<br>
+
+<br><b>Keterangan:</b><br>
+${isi(p.Keterangan)}<br>
+
 <b>CDK:</b> ${isi(p.CDK)}
 `;
 });
 
-html+="</div>";
+html += "</div>";
 
 L.circleMarker([lat,lon],{
 radius:3,
@@ -209,30 +290,42 @@ fillOpacity:1
 
 });
 
+// ================= STAT =================
+document.getElementById("total").innerHTML = total;
+
+updateChart(countCDK);
 updateLegend();
 }
 
-// ================= COLOR =================
-function getColor(c){
-return {
-"CDK I":"red","CDK II":"blue","CDK III":"green",
-"CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
-"CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
-}[c]||"black";
+// ================= CHART =================
+function updateChart(data){
+
+if(chart) chart.destroy();
+
+chart = new Chart(document.getElementById("chart"),{
+type:'pie',
+data:{
+labels:Object.keys(data),
+datasets:[{
+data:Object.values(data),
+backgroundColor:Object.keys(data).map(getColor)
+}]
+}
+});
 }
 
 // ================= LEGEND =================
 function updateLegend(){
 
-let div=document.getElementById("legend");
-div.innerHTML="<b>CDK</b><br>";
+let div = document.getElementById("legend");
+div.innerHTML = "<b>CDK</b><br>";
 
 ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"]
 .forEach(c=>{
 
-let aktif=activeCDK.includes(c);
+let aktif = activeCDK.includes(c);
 
-div.innerHTML+=`
+div.innerHTML += `
 <div onclick="toggleCDK('${c}')" style="opacity:${aktif?1:0.3}">
 <span style="background:${getColor(c)};
 display:inline-block;width:12px;height:12px;"></span> ${c}
@@ -248,6 +341,19 @@ activeCDK = activeCDK.filter(x=>x!==c);
 activeCDK.push(c);
 }
 
+updateMap();
+}
+
+// ================= SEARCH =================
+function applySearch(){
+keyword = document.getElementById("search").value.toLowerCase();
+updateMap();
+}
+
+function resetFilter(){
+keyword="";
+selectedKab=null;
+document.getElementById("search").value="";
 updateMap();
 }
 
