@@ -57,17 +57,6 @@ padding:6px;
 border-radius:6px;
 }
 
-.legend{
-position:absolute;
-top:80px;
-right:10px;
-background:white;
-padding:10px;
-border-radius:10px;
-z-index:1000;
-box-shadow:0 0 5px rgba(0,0,0,0.3);
-}
-
 .popup-scroll{
 max-height:250px;
 overflow-y:auto;
@@ -96,8 +85,6 @@ line-height:1.5;
 <b>Total Titik:</b> <span id="total">0</span>
 <canvas id="chart"></canvas>
 </div>
-
-<div class="legend" id="legend"></div>
 
 <script>
 
@@ -171,19 +158,21 @@ fetch("./Jaga.geojson")
 allData = d.features ? d.features : d;
 initFilter();
 updateMap();
-})
-.catch(err=>console.error("ERROR JAGA:", err));
+});
 
 // ================= LOAD POLYGON =================
-fetch("./JawaBarat.geojson")
+fetch("./Jawa Barattt.geojson")
 .then(r=>r.json())
 .then(data=>{
+
 L.geoJSON(data,{
-style:{color:"black",weight:1,fillOpacity:0.1},
+style:{color:"black",weight:fillOpacity:0.1},
+
 onEachFeature:(f,l)=>{
 
 let kab = f.properties.KAB_KOTA;
 
+// simpan polygon
 kabPolygons.push({
 nama: normalize(kab),
 coords: f.geometry.coordinates
@@ -198,8 +187,8 @@ map.fitBounds(l.getBounds());
 });
 }
 }).addTo(map);
-})
-.catch(err=>console.error("ERROR POLYGON:", err));
+
+});
 
 // ================= FILTER =================
 function initFilter(){
@@ -253,7 +242,6 @@ allData.forEach(f=>{
 
 let p=f.properties || f;
 
-// ambil koordinat (AMAN)
 let lat = fix(p["Koordinat Desa (Latitude)"]) ?? f.geometry?.coordinates?.[1];
 let lon = fix(p["Koordinat Desa (Longitude)"]) ?? f.geometry?.coordinates?.[0];
 
@@ -266,7 +254,7 @@ let temp = lat; lat = lon; lon = temp;
 
 if(lat===null || lon===null) return;
 
-// FILTER POLYGON
+// FILTER POLYGON (INI YANG FIX)
 if(selectedKab && selectedKab!="all"){
 let cocok=false;
 
@@ -297,8 +285,16 @@ if(pen!==selectedPenyuluh) return;
 
 if(!activeCDK.includes(p.CDK)) return;
 
-// GROUP PER TITIK
-let key = lat.toFixed(6)+"_"+lon.toFixed(6);
+// GROUP
+let penyuluh = p["Penyuluh Kehutanan Pendamping"];
+let key;
+
+if(!penyuluh){
+key = lat.toFixed(6)+"_"+lon.toFixed(6)+"_"+Math.random();
+}else{
+key = lat.toFixed(6)+"_"+lon.toFixed(6);
+}
+
 if(!grouped[key]) grouped[key]=[];
 grouped[key].push({...p,lat,lon});
 
@@ -313,8 +309,11 @@ Object.values(grouped).forEach(group=>{
 let lat=group[0].lat;
 let lon=group[0].lon;
 
+let penyuluhList = [...new Set(group.map(p=>p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh"))];
+
 let html = `<div class="popup-scroll">
 <b style="font-size:14px;">Data Petugas Jaga Leuweung</b>
+<br><b>Penyuluh:</b> ${penyuluhList.join(", ")}
 <br><b>Jumlah Anggota:</b> ${group.length}
 `;
 
@@ -353,7 +352,7 @@ ${isi(p.Keterangan)}<br>
 html += "</div>";
 
 L.circleMarker([lat,lon],{
-radius:1,
+radius:2,
 color:getColor(group[0].CDK),
 fillColor:getColor(group[0].CDK),
 fillOpacity:1,
@@ -367,7 +366,6 @@ weight:1
 // ================= STAT =================
 document.getElementById("total").innerHTML = total;
 updateChart(countCDK);
-updateLegend();
 }
 
 // ================= CHART =================
@@ -384,34 +382,6 @@ backgroundColor:Object.keys(data).map(getColor)
 }]
 }
 });
-}
-
-// ================= LEGEND =================
-function updateLegend(){
-
-let div=document.getElementById("legend");
-div.innerHTML="<b>CDK</b><br>";
-
-["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"]
-.forEach(c=>{
-
-let aktif=activeCDK.includes(c);
-
-div.innerHTML+=`
-<div onclick="toggleCDK('${c}')" style="opacity:${aktif?1:0.3}">
-<span style="background:${getColor(c)};
-display:inline-block;width:12px;height:12px;"></span> ${c}
-</div>`;
-});
-}
-
-function toggleCDK(c){
-if(activeCDK.includes(c)){
-activeCDK = activeCDK.filter(x=>x!==c);
-}else{
-activeCDK.push(c);
-}
-updateMap();
 }
 
 </script>
