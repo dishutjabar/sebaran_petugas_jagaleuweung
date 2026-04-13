@@ -108,18 +108,14 @@ var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
 var satelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
 osm.addTo(map);
 
-L.control.layers({
-"OSM": osm,
-"Satelit": satelit
-}).addTo(map);
+L.control.layers({"OSM": osm,"Satelit": satelit}).addTo(map);
 
 // ================= GLOBAL =================
-let allData;
+let allData = [];
 let markersLayer = L.layerGroup().addTo(map);
 let chart;
 
 let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
-
 let selectedKab=null, selectedCDK=null, selectedPenyuluh=null;
 let kabPolygons = [];
 
@@ -128,11 +124,7 @@ function fix(v){
 if(v===0 || v==="0") return 0;
 if(!v) return null;
 
-v = String(v)
-.trim()
-.replace(",", ".")
-.replace(/[^\d\.\-]/g, "");
-
+v = String(v).trim().replace(",", ".").replace(/[^\d\.\-]/g, "");
 let n = parseFloat(v);
 return isNaN(n) ? null : n;
 }
@@ -173,22 +165,48 @@ return inside;
 }
 
 // ================= LOAD DATA =================
-fetch("Jaga.geojson")
+fetch("./Jaga.geojson")
 .then(r=>r.json())
 .then(d=>{
-allData = d.features;
+allData = d.features ? d.features : d;
 initFilter();
 updateMap();
+})
+.catch(err=>console.error("ERROR JAGA:", err));
+
+// ================= LOAD POLYGON =================
+fetch("./JawaBarat.geojson")
+.then(r=>r.json())
+.then(data=>{
+L.geoJSON(data,{
+style:{color:"black",weight:1,fillOpacity:0.1},
+onEachFeature:(f,l)=>{
+
+let kab = f.properties.KAB_KOTA;
+
+kabPolygons.push({
+nama: normalize(kab),
+coords: f.geometry.coordinates
 });
 
-// ================= INIT FILTER =================
-function initFilter(){
+l.bindPopup("<b>"+kab+"</b>");
 
+l.on("click",()=>{
+selectedKab = normalize(kab);
+updateMap();
+map.fitBounds(l.getBounds());
+});
+}
+}).addTo(map);
+})
+.catch(err=>console.error("ERROR POLYGON:", err));
+
+// ================= FILTER =================
+function initFilter(){
 let kab=new Set(),cdk=new Set(),penyuluh=new Set();
 
 allData.forEach(f=>{
-let p=f.properties;
-
+let p=f.properties || f;
 kab.add(p.Kabupaten);
 cdk.add(p.CDK);
 penyuluh.add(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh");
@@ -209,7 +227,6 @@ el.appendChild(o);
 });
 }
 
-// ================= APPLY =================
 function applyFilter(){
 selectedKab = filterKab.value;
 selectedCDK = filterCDK.value;
@@ -223,36 +240,6 @@ document.querySelectorAll("select").forEach(s=>s.value="all");
 updateMap();
 }
 
-// ================= LOAD POLYGON =================
-fetch("Jawa Barattt.geojson")
-.then(r=>r.json())
-.then(data=>{
-
-L.geoJSON(data,{
-style:{color:"black",weight:1,fillOpacity:0.1},
-
-onEachFeature:(f,l)=>{
-
-let kab = f.properties.KAB_KOTA;
-
-// simpan polygon
-kabPolygons.push({
-nama: normalize(kab),
-coords: f.geometry.coordinates
-});
-
-l.bindPopup("<b>"+kab+"</b>");
-
-l.on("click",()=>{
-selectedKab = normalize(kab);
-updateMap();
-map.fitBounds(l.getBounds());
-});
-}
-}).addTo(map);
-
-});
-
 // ================= UPDATE =================
 function updateMap(){
 
@@ -264,41 +251,34 @@ let total = 0;
 
 allData.forEach(f=>{
 
-let p=f.properties;
+let p=f.properties || f;
 
-let lat=fix(p["Koordinat Desa (Latitude)"]);
-let lon=fix(p["Koordinat Desa (Longitude)"]);
+// ambil koordinat (AMAN)
+let lat = fix(p["Koordinat Desa (Latitude)"]) ?? f.geometry?.coordinates?.[1];
+let lon = fix(p["Koordinat Desa (Longitude)"]) ?? f.geometry?.coordinates?.[0];
 
-// auto swap kalau ketuker
+// swap kalau ketuker
 if(lat!==null && lon!==null){
 if(Math.abs(lat) > 90 && Math.abs(lon) <= 90){
-let temp = lat;
-lat = lon;
-lon = temp;
+let temp = lat; lat = lon; lon = temp;
 }
 }
 
-if(lat===null || lon===null){
-console.warn("KOORDINAT ERROR:", p);
-return;
-}
+if(lat===null || lon===null) return;
 
-// FILTER KAB POLYGON
+// FILTER POLYGON
 if(selectedKab && selectedKab!="all"){
-
-let cocok = false;
+let cocok=false;
 
 kabPolygons.forEach(poly=>{
-if(poly.nama === normalize(selectedKab)){
-
+if(poly.nama===normalize(selectedKab)){
 poly.coords.forEach(multi=>{
 multi.forEach(ring=>{
 if(pointInPolygon([lon,lat], ring)){
-cocok = true;
+cocok=true;
 }
 });
 });
-
 }
 });
 
@@ -317,9 +297,8 @@ if(pen!==selectedPenyuluh) return;
 
 if(!activeCDK.includes(p.CDK)) return;
 
-// GROUP BY KOORDINAT
-let key = lat.toFixed(6) + "_" + lon.toFixed(6);
-
+// GROUP PER TITIK
+let key = lat.toFixed(6)+"_"+lon.toFixed(6);
 if(!grouped[key]) grouped[key]=[];
 grouped[key].push({...p,lat,lon});
 
@@ -374,7 +353,7 @@ ${isi(p.Keterangan)}<br>
 html += "</div>";
 
 L.circleMarker([lat,lon],{
-radius:,
+radius:1,
 color:getColor(group[0].CDK),
 fillColor:getColor(group[0].CDK),
 fillOpacity:1,
@@ -387,14 +366,12 @@ weight:1
 
 // ================= STAT =================
 document.getElementById("total").innerHTML = total;
-
 updateChart(countCDK);
 updateLegend();
 }
 
 // ================= CHART =================
 function updateChart(data){
-
 if(chart) chart.destroy();
 
 chart = new Chart(document.getElementById("chart"),{
