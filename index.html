@@ -1,17 +1,337 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sebaran Petugas Jaga Leuweung</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <link rel="stylesheet" href="style.css">
+<meta charset="utf-8" />
+<title>Sebaran Petugas Jaga Leuweung Tahun 2026</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body { margin:0; font-family:Arial; }
+#map { height:100vh; }
+
+.judul {
+    position:absolute;
+    top:10px;
+    left:50%;
+    transform:translateX(-50%);
+    background:white;
+    padding:10px 20px;
+    font-size:18px;
+    font-weight:bold;
+    border-radius:8px;
+    box-shadow:0 0 5px rgba(0,0,0,0.3);
+    z-index:1000;
+}
+
+.panel {
+    position:absolute;
+    bottom:10px;
+    left:10px;
+    width:330px;
+    background:white;
+    padding:10px;
+    border-radius:10px;
+    box-shadow:0 0 6px rgba(0,0,0,0.3);
+    z-index:1000;
+}
+
+.legend {
+    background:white;
+    padding:10px;
+    border-radius:8px;
+    box-shadow:0 0 5px rgba(0,0,0,0.3);
+    line-height:18px;
+}
+
+select {
+    width:100%;
+    margin-top:5px;
+}
+
+canvas {
+    margin-top:10px;
+}
+</style>
 </head>
 <body>
 
-<h2>Sebaran Petugas Jaga Leuweung</h2>
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="script.js"></script>
+<div class="judul">
+Sebaran Petugas Jaga Leuweung Tahun 2026
+</div>
 
+<div class="panel">
+    <b>Filter Penyuluh</b>
+    <select id="filterPenyuluh" onchange="filterPenyuluhFunc()">
+        <option value="">Semua Penyuluh</option>
+    </select>
+
+    <div id="summaryBox"></div>
+    <canvas id="chartCDK"></canvas>
+</div>
+
+<script>
+
+// ================= BASEMAP =================
+var map = L.map('map').setView([-6.9,107.6], 8);
+
+var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+var satelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+var medan = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');
+
+osm.addTo(map);
+
+L.control.layers({
+    "OSM": osm,
+    "Satelit": satelit,
+    "Medan": medan
+}).addTo(map);
+
+// ================= GLOBAL =================
+var allData;
+var batasLayer;
+var pjlLayer;
+var chart;
+
+let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
+let selectedKabupaten = null;
+let selectedPenyuluh = null;
+
+// ================= WARNA =================
+function getColor(cdk){
+    return {
+        "CDK I":"red",
+        "CDK II":"blue",
+        "CDK III":"green",
+        "CDK IV":"orange",
+        "CDK V":"purple",
+        "CDK VI":"brown",
+        "CDK VII":"pink",
+        "CDK VIII":"gray",
+        "CDK IX":"black"
+    }[cdk] || "black";
+}
+
+function isiData(data){
+    return (data == null || data == "") ? "Tidak Ada" : data;
+}
+
+// ================= LOAD DATA =================
+fetch("Jaga Leuweung.geojson")
+.then(res=>res.json())
+.then(data=>{
+    allData = data;
+    initFilter();
+    updateMap();
+});
+
+fetch("Jawa Barattt.geojson")
+.then(res=>res.json())
+.then(data=>{
+
+    batasLayer = L.geoJSON(data,{
+        style:{
+            color:"black",
+            weight:1,
+            fillOpacity:0.1
+        },
+
+        onEachFeature: function(f,l){
+
+            let namaKab = f.properties.KAB_KOTA;
+
+            l.bindPopup("<b>Kabupaten:</b> " + namaKab);
+
+            l.on('click', function(){
+                selectedKabupaten = namaKab;
+                updateMap();
+                map.fitBounds(l.getBounds());
+            });
+        }
+    }).addTo(map);
+
+    L.control.layers(null, {
+        "Batas Kabupaten": batasLayer
+    }).addTo(map);
+});
+
+// ================= FILTER PENYULUH =================
+function initFilter(){
+    let set = new Set();
+
+    allData.features.forEach(f=>{
+        set.add(f.properties["Penyuluh Kehutanan Pendamping"]);
+    });
+
+    let select = document.getElementById("filterPenyuluh");
+
+    set.forEach(p=>{
+        let opt = document.createElement("option");
+        opt.value = p;
+        opt.text = p;
+        select.appendChild(opt);
+    });
+}
+
+function filterPenyuluhFunc(){
+    selectedPenyuluh = document.getElementById("filterPenyuluh").value || null;
+    updateMap();
+}
+
+// ================= UPDATE MAP =================
+function updateMap(){
+
+    if(pjlLayer) map.removeLayer(pjlLayer);
+
+    let grouped = {};
+    let countCDK = {};
+    let total = 0;
+
+    allData.features.forEach(f => {
+
+        let p = f.properties;
+
+        if(selectedKabupaten && p.Kabupaten !== selectedKabupaten) return;
+        if(selectedPenyuluh && p["Penyuluh Kehutanan Pendamping"] !== selectedPenyuluh) return;
+        if(!activeCDK.includes(p.CDK)) return;
+
+        let key = p["Penyuluh Kehutanan Pendamping"];
+
+        if(!grouped[key]){
+            grouped[key] = [];
+        }
+
+        grouped[key].push(f);
+
+        countCDK[p.CDK] = (countCDK[p.CDK] || 0) + 1;
+        total++;
+    });
+
+    pjlLayer = L.layerGroup();
+
+    Object.keys(grouped).forEach(penyuluh => {
+
+        let group = grouped[penyuluh];
+        let lat = group[0].geometry.coordinates[1];
+        let lon = group[0].geometry.coordinates[0];
+
+        let html = "";
+
+        group.forEach(f=>{
+            let p = f.properties;
+
+            html += `
+            <hr>
+            <b>Nama:</b> ${isiData(p.Nama)}<br>
+            <b>NIK:</b> ${isiData(p.NIK)}<br>
+            <b>Usia:</b> ${isiData(p["Usia (Tahun)"])}<br>
+            <b>Desa:</b> ${isiData(p.Desa)}<br>
+            <b>Kecamatan:</b> ${isiData(p.Kecamatan)}<br>
+            <b>Kabupaten:</b> ${isiData(p.Kabupaten)}<br>
+            `;
+        });
+
+        let marker = L.circleMarker([lat,lon],{
+            radius:6,
+            color:getColor(group[0].properties.CDK),
+            fillOpacity:1
+        });
+
+        marker.bindPopup(`
+        <b>Penyuluh:</b> ${penyuluh}<br>
+        <b>Jumlah Anggota:</b> ${group.length}
+        ${html}
+        `);
+
+        pjlLayer.addLayer(marker);
+    });
+
+    pjlLayer.addTo(map);
+
+    updateChart(countCDK);
+    updateSummary(countCDK, total);
+}
+
+// ================= SUMMARY =================
+function updateSummary(data,total){
+    let sorted = Object.entries(data)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,3);
+
+    let html = "<b>Top 3 CDK</b><br>";
+    html += "Total: " + total + "<br><br>";
+
+    sorted.forEach(d=>{
+        html += d[0] + ": " + d[1] + "<br>";
+    });
+
+    document.getElementById("summaryBox").innerHTML = html;
+}
+
+// ================= PIE CHART =================
+function updateChart(data){
+
+    if(chart) chart.destroy();
+
+    chart = new Chart(document.getElementById("chartCDK"),{
+        type:'pie',
+        data:{
+            labels:Object.keys(data),
+            datasets:[{
+                data:Object.values(data),
+                backgroundColor:Object.keys(data).map(c=>getColor(c))
+            }]
+        },
+        options:{
+            plugins:{
+                title:{
+                    display:true,
+                    text:'Distribusi PJL per CDK'
+                }
+            }
+        }
+    });
+}
+
+// ================= LEGENDA =================
+var legend = L.control({position:"topright"});
+
+legend.onAdd = function(){
+    var div = L.DomUtil.create("div","legend");
+    div.innerHTML = "<b>CDK (Klik)</b><br>";
+
+    ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"]
+    .forEach(c=>{
+        let aktif = activeCDK.includes(c);
+        div.innerHTML += `
+        <div onclick="toggleCDK('${c}')"
+        style="cursor:pointer; opacity:${aktif?1:0.3}">
+        <i style="background:${getColor(c)};
+        width:12px;height:12px;display:inline-block;"></i> ${c}
+        </div>`;
+    });
+
+    return div;
+};
+
+legend.addTo(map);
+
+function toggleCDK(cdk){
+    if(activeCDK.includes(cdk)){
+        activeCDK = activeCDK.filter(c=>c !== cdk);
+    } else {
+        activeCDK.push(cdk);
+    }
+    updateMap();
+    legend.remove();
+    legend.addTo(map);
+}
+
+</script>
 </body>
 </html>
