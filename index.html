@@ -121,18 +121,31 @@ let chart;
 let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
 
 let selectedKab=null, selectedCDK=null, selectedPenyuluh=null;
+let kabPolygons = [];
 
 // ================= HELPER =================
 function fix(v){
 if(v===0 || v==="0") return 0;
-return parseFloat(String(v).replace(",", ".")) || null;
+if(!v) return null;
+
+v = String(v)
+.trim()
+.replace(",", ".")
+.replace(/[^\d\.\-]/g, "");
+
+let n = parseFloat(v);
+return isNaN(n) ? null : n;
+}
+
+function isi(v){
+if(!v) return "data tidak tersedia";
+v = String(v).trim();
+return v === "" ? "data tidak tersedia" : v;
 }
 
 function normalize(t){
 return (t||"").toLowerCase().replace(/kabupaten|kota/g,"").trim();
 }
-
-function isi(v){ return v || "-"; }
 
 // ================= COLOR =================
 function getColor(c){
@@ -141,6 +154,22 @@ return {
 "CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
 "CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
 }[c]||"black";
+}
+
+// ================= POINT IN POLYGON =================
+function pointInPolygon(point, vs) {
+let x = point[0], y = point[1];
+let inside = false;
+for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+let xi = vs[i][0], yi = vs[i][1];
+let xj = vs[j][0], yj = vs[j][1];
+
+let intersect = ((yi > y) != (yj > y)) &&
+(x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+if (intersect) inside = !inside;
+}
+return inside;
 }
 
 // ================= LOAD DATA =================
@@ -203,7 +232,14 @@ L.geoJSON(data,{
 style:{color:"black",weight:1,fillOpacity:0.1},
 
 onEachFeature:(f,l)=>{
+
 let kab = f.properties.KAB_KOTA;
+
+// simpan polygon
+kabPolygons.push({
+nama: normalize(kab),
+coords: f.geometry.coordinates
+});
 
 l.bindPopup("<b>"+kab+"</b>");
 
@@ -233,13 +269,43 @@ let p=f.properties;
 let lat=fix(p["Koordinat Desa (Latitude)"]);
 let lon=fix(p["Koordinat Desa (Longitude)"]);
 
-if(lat===null || lon===null) return;
-
-// FILTER
-if(selectedKab && selectedKab!="all"){
-if(normalize(p.Kabupaten)!==normalize(selectedKab)) return;
+// auto swap kalau ketuker
+if(lat!==null && lon!==null){
+if(Math.abs(lat) > 90 && Math.abs(lon) <= 90){
+let temp = lat;
+lat = lon;
+lon = temp;
+}
 }
 
+if(lat===null || lon===null){
+console.warn("KOORDINAT ERROR:", p);
+return;
+}
+
+// FILTER KAB POLYGON
+if(selectedKab && selectedKab!="all"){
+
+let cocok = false;
+
+kabPolygons.forEach(poly=>{
+if(poly.nama === normalize(selectedKab)){
+
+poly.coords.forEach(multi=>{
+multi.forEach(ring=>{
+if(pointInPolygon([lon,lat], ring)){
+cocok = true;
+}
+});
+});
+
+}
+});
+
+if(!cocok) return;
+}
+
+// FILTER LAIN
 if(selectedCDK && selectedCDK!="all"){
 if(p.CDK!==selectedCDK) return;
 }
@@ -251,18 +317,10 @@ if(pen!==selectedPenyuluh) return;
 
 if(!activeCDK.includes(p.CDK)) return;
 
-// GROUPING SESUAI ATURAN
-let penyuluh = p["Penyuluh Kehutanan Pendamping"];
-
-let key;
-if(!penyuluh){
-key = "single_" + Math.random();
-}else{
-key = penyuluh + "_" + p.CDK;
-}
+// GROUP BY KOORDINAT
+let key = lat.toFixed(6) + "_" + lon.toFixed(6);
 
 if(!grouped[key]) grouped[key]=[];
-
 grouped[key].push({...p,lat,lon});
 
 // STAT
@@ -316,10 +374,11 @@ ${isi(p.Keterangan)}<br>
 html += "</div>";
 
 L.circleMarker([lat,lon],{
-radius:1,
+radius:,
 color:getColor(group[0].CDK),
 fillColor:getColor(group[0].CDK),
-fillOpacity:1
+fillOpacity:1,
+weight:1
 })
 .bindPopup(html)
 .addTo(markersLayer);
