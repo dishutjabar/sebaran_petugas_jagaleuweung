@@ -156,17 +156,21 @@ function isPointInGeoJSONPolygon(lon, lat, geometry){
 if(!geometry) return false;
 
 if(geometry.type === "Polygon"){
-return geometry.coordinates.some(ring =>
-pointInPolygon([lon,lat], ring)
-);
+for(let i=0;i<geometry.coordinates.length;i++){
+if(pointInPolygon([lon,lat], geometry.coordinates[i])){
+return true;
+}
+}
 }
 
 if(geometry.type === "MultiPolygon"){
-return geometry.coordinates.some(poly =>
-poly.some(ring =>
-pointInPolygon([lon,lat], ring)
-)
-);
+for(let i=0;i<geometry.coordinates.length;i++){
+for(let j=0;j<geometry.coordinates[i].length;j++){
+if(pointInPolygon([lon,lat], geometry.coordinates[i][j])){
+return true;
+}
+}
+}
 }
 
 return false;
@@ -182,16 +186,24 @@ updateMap();
 });
 
 // ================= LOAD POLYGON =================
-fetch("./JawaBarat.geojson")
+fetch("./Jawa Barattt.geojson")
 .then(r=>r.json())
 .then(data=>{
 
+console.log("POLYGON DATA:", data);
+
 L.geoJSON(data,{
-style:{color:"black",weight:0.5,fillOpacity:0.1},
+style:{
+color:"red",
+weight:0.5,
+fillColor:"yellow",
+fillOpacity:0.2
+},
 
 onEachFeature:(f,l)=>{
 
-let kab = f.properties.KAB_KOTA;
+let props = f.properties;
+let kab = props.KAB_KOTA || props.KABKOT || props.NAMOBJ || props.WADMKK || props.NAME_2 || "Tidak diketahui";
 
 kabPolygons.push({
 nama: normalize(kab),
@@ -205,10 +217,12 @@ selectedKab = normalize(kab);
 updateMap();
 map.fitBounds(l.getBounds());
 });
+
 }
 }).addTo(map);
 
-});
+})
+.catch(err=>console.error("ERROR POLYGON:", err));
 
 // ================= FILTER =================
 function initFilter(){
@@ -273,7 +287,7 @@ let temp = lat; lat = lon; lon = temp;
 
 if(lat===null || lon===null) return;
 
-// ================= FILTER POLYGON =================
+// FILTER POLYGON
 if(selectedKab && selectedKab!="all"){
 let cocok = false;
 
@@ -300,7 +314,7 @@ if(pen!==selectedPenyuluh) return;
 
 if(!activeCDK.includes(p.CDK)) return;
 
-// ================= GROUP =================
+// GROUP
 let penyuluh = p["Penyuluh Kehutanan Pendamping"];
 let key;
 
@@ -355,7 +369,7 @@ Y: ${isi(p["Koordinat Calon Lokasi Persemaian (Y)"])}<br>
 X: ${isi(p["Koordinat Calon Lokasi Penanaman (X)"])}<br>
 Y: ${isi(p["Koordinat Calon Lokasi Penanaman (Y)"])}<br>
 
-<br><b>Penyuluh:</b> ${isi(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh")}<br>
+<br><b>Penyuluh Kehutanan Pendamping:</b> ${isi(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh")}<br>
 
 <br><b>Keterangan:</b><br>
 ${isi(p.Keterangan)}<br>
