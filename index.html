@@ -19,39 +19,61 @@ top:10px;
 left:50%;
 transform:translateX(-50%);
 background:white;
-padding:10px;
-border-radius:8px;
+padding:10px 20px;
+border-radius:10px;
 z-index:1000;
 font-weight:bold;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
 }
 
-.panel{
+.panel-filter{
 position:absolute;
-bottom:10px;
+top:10px;
 left:10px;
+background:white;
+padding:15px;
+border-radius:12px;
+width:260px;
+z-index:1000;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
+}
+
+.panel-stat{
+position:absolute;
+right:10px;
+bottom:10px;
+background:white;
+padding:15px;
+border-radius:12px;
+width:260px;
+z-index:1000;
+box-shadow:0 0 6px rgba(0,0,0,0.3);
+}
+
+select,button{
+width:100%;
+margin-top:5px;
+padding:6px;
+border-radius:6px;
+}
+
+.legend{
+position:absolute;
+top:80px;
+right:10px;
 background:white;
 padding:10px;
 border-radius:10px;
 z-index:1000;
-width:260px;
+box-shadow:0 0 5px rgba(0,0,0,0.3);
 }
 
 .popup-scroll{
 max-height:250px;
 overflow-y:auto;
 font-size:13px;
+line-height:1.5;
 }
-
-.legend{
-position:absolute;
-top:70px;
-right:10px;
-background:white;
-padding:10px;
-border-radius:8px;
-z-index:1000;
-}
-.legend div{cursor:pointer;margin-bottom:5px;}
 </style>
 </head>
 <body>
@@ -59,12 +81,19 @@ z-index:1000;
 <div class="title">Sebaran Petugas Jaga Leuweung Tahun 2026</div>
 <div id="map"></div>
 
-<div class="panel">
-<b>Filter Penyuluh</b>
-<select id="filterPenyuluh"></select><br><br>
+<div class="panel-filter">
+<b>Filter Data</b>
 
+<select id="filterKab"><option value="all">Semua Kabupaten</option></select>
+<select id="filterCDK"><option value="all">Semua CDK</option></select>
+<select id="filterPenyuluh"><option value="all">Semua Penyuluh</option></select>
+
+<button onclick="applyFilter()">Terapkan</button>
+<button onclick="resetFilter()">Reset</button>
+</div>
+
+<div class="panel-stat">
 <b>Total Titik:</b> <span id="total">0</span>
-
 <canvas id="chart"></canvas>
 </div>
 
@@ -75,7 +104,14 @@ z-index:1000;
 // ================= MAP =================
 var map = L.map('map').setView([-6.9,107.6],8);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+var satelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+osm.addTo(map);
+
+L.control.layers({
+"OSM": osm,
+"Satelit": satelit
+}).addTo(map);
 
 // ================= GLOBAL =================
 let allData;
@@ -83,51 +119,82 @@ let markersLayer = L.layerGroup().addTo(map);
 let chart;
 
 let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
-let selectedPenyuluh = null;
-let selectedKab = null;
 
-// ================= FIX PARSE =================
-function fixNumber(v){
-if(v===null || v===undefined) return null;
-v = String(v).replace(",",".").trim();
-let n = parseFloat(v);
-return isNaN(n) ? null : n;
+let selectedKab=null, selectedCDK=null, selectedPenyuluh=null;
+
+// ================= HELPER =================
+function fix(v){
+if(v===0 || v==="0") return 0;
+return parseFloat(String(v).replace(",", ".")) || null;
 }
 
-// ================= NORMALIZE =================
 function normalize(t){
 return (t||"").toLowerCase().replace(/kabupaten|kota/g,"").trim();
 }
 
-function isi(v){
-return (v==null||v=="")?"-":v;
-}
+function isi(v){ return v || "-"; }
 
 // ================= COLOR =================
 function getColor(c){
 return {
-"CDK I":"red",
-"CDK II":"blue",
-"CDK III":"green",
-"CDK IV":"orange",
-"CDK V":"purple",
-"CDK VI":"brown",
-"CDK VII":"pink",
-"CDK VIII":"gray",
-"CDK IX":"black"
-}[c] || "black";
+"CDK I":"red","CDK II":"blue","CDK III":"green",
+"CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
+"CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
+}[c]||"black";
 }
 
 // ================= LOAD DATA =================
 fetch("Jaga.geojson")
 .then(r=>r.json())
-.then(data=>{
-allData = data.features;
+.then(d=>{
+allData = d.features;
 initFilter();
 updateMap();
 });
 
-// ================= LOAD KAB =================
+// ================= INIT FILTER =================
+function initFilter(){
+
+let kab=new Set(),cdk=new Set(),penyuluh=new Set();
+
+allData.forEach(f=>{
+let p=f.properties;
+
+kab.add(p.Kabupaten);
+cdk.add(p.CDK);
+penyuluh.add(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh");
+});
+
+isiSelect("filterKab",kab);
+isiSelect("filterCDK",cdk);
+isiSelect("filterPenyuluh",penyuluh);
+}
+
+function isiSelect(id,set){
+let el=document.getElementById(id);
+set.forEach(v=>{
+let o=document.createElement("option");
+o.value=v;
+o.innerHTML=v;
+el.appendChild(o);
+});
+}
+
+// ================= APPLY =================
+function applyFilter(){
+selectedKab = filterKab.value;
+selectedCDK = filterCDK.value;
+selectedPenyuluh = filterPenyuluh.value;
+updateMap();
+}
+
+function resetFilter(){
+selectedKab=selectedCDK=selectedPenyuluh=null;
+document.querySelectorAll("select").forEach(s=>s.value="all");
+updateMap();
+}
+
+// ================= LOAD POLYGON =================
 fetch("Jawa Barattt.geojson")
 .then(r=>r.json())
 .then(data=>{
@@ -136,12 +203,12 @@ L.geoJSON(data,{
 style:{color:"black",weight:1,fillOpacity:0.1},
 
 onEachFeature:(f,l)=>{
-let id = f.properties.KAB_KOTA;
+let kab = f.properties.KAB_KOTA;
 
-l.bindPopup("<b>"+id+"</b>");
+l.bindPopup("<b>"+kab+"</b>");
 
 l.on("click",()=>{
-selectedKab = normalize(id);
+selectedKab = normalize(kab);
 updateMap();
 map.fitBounds(l.getBounds());
 });
@@ -149,30 +216,6 @@ map.fitBounds(l.getBounds());
 }).addTo(map);
 
 });
-
-// ================= FILTER =================
-function initFilter(){
-let set = new Set();
-
-allData.forEach(f=>{
-set.add(f.properties["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh");
-});
-
-let sel = document.getElementById("filterPenyuluh");
-sel.innerHTML = "<option value=''>Semua</option>";
-
-set.forEach(p=>{
-let o=document.createElement("option");
-o.value=p;
-o.innerHTML=p;
-sel.appendChild(o);
-});
-
-sel.onchange = ()=>{
-selectedPenyuluh = sel.value || null;
-updateMap();
-};
-}
 
 // ================= UPDATE =================
 function updateMap(){
@@ -185,20 +228,30 @@ let total = 0;
 
 allData.forEach(f=>{
 
-let p = f.properties;
+let p=f.properties;
 
-let lat = fixNumber(p["Koordinat Desa (Latitude)"]);
-let lon = fixNumber(p["Koordinat Desa (Longitude)"]);
+let lat=fix(p["Koordinat Desa (Latitude)"]);
+let lon=fix(p["Koordinat Desa (Longitude)"]);
 
-// >>> PERBAIKAN: jangan terlalu ketat
-if(lat == null || lon == null) return;
+if(lat===null || lon===null) return;
 
 // FILTER
-if(selectedPenyuluh && (p["Penyuluh Kehutanan Pendamping"]||"Tidak ada penyuluh") !== selectedPenyuluh) return;
-if(selectedKab && normalize(p.Kabupaten) !== selectedKab) return;
+if(selectedKab && selectedKab!="all"){
+if(normalize(p.Kabupaten)!==normalize(selectedKab)) return;
+}
+
+if(selectedCDK && selectedCDK!="all"){
+if(p.CDK!==selectedCDK) return;
+}
+
+if(selectedPenyuluh && selectedPenyuluh!="all"){
+let pen = p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh";
+if(pen!==selectedPenyuluh) return;
+}
+
 if(!activeCDK.includes(p.CDK)) return;
 
-// GROUPING SESUAI ATURAN KAMU
+// GROUPING SESUAI ATURAN
 let penyuluh = p["Penyuluh Kehutanan Pendamping"];
 
 let key;
@@ -208,52 +261,56 @@ key = "single_" + Math.random();
 key = penyuluh + "_" + p.CDK;
 }
 
-if(!grouped[key]) grouped[key] = [];
+if(!grouped[key]) grouped[key]=[];
 
-grouped[key].push({...p, lat, lon});
+grouped[key].push({...p,lat,lon});
 
 // STAT
-countCDK[p.CDK] = (countCDK[p.CDK]||0)+1;
+countCDK[p.CDK]=(countCDK[p.CDK]||0)+1;
 total++;
 });
 
 // ================= DRAW =================
-Object.keys(grouped).forEach(k=>{
+Object.values(grouped).forEach(group=>{
 
-let group = grouped[k];
-let lat = group[0].lat;
-let lon = group[0].lon;
+let lat=group[0].lat;
+let lon=group[0].lon;
 
-// >>> PERBAIKAN POPUP (AMAN)
-let html = "<div class='popup-scroll'><b>Data Petugas</b>";
+let html = `<div class="popup-scroll">
+<b style="font-size:14px;">Data Petugas Jaga Leuweung</b>
+<br><b>Jumlah Anggota:</b> ${group.length}
+`;
 
 group.forEach(p=>{
-html += "<hr>";
-html += "<b>Nama:</b> "+isi(p.Nama)+"<br>";
-html += "<b>NIK:</b> "+isi(p.NIK)+"<br>";
-html += "<b>Usia:</b> "+isi(p["Usia (Tahun)"])+"<br>";
-html += "<b>Alamat:</b> "+isi(p.Alamat)+"<br>";
-html += "<b>Desa:</b> "+isi(p.Desa)+"<br>";
-html += "<b>Kecamatan:</b> "+isi(p.Kecamatan)+"<br>";
-html += "<b>Kabupaten:</b> "+isi(p.Kabupaten)+"<br>";
+html+=`
+<hr>
+<b>Nama:</b> ${isi(p.Nama)}<br>
+<b>NIK:</b> ${isi(p.NIK)}<br>
+<b>Usia:</b> ${isi(p["Usia (Tahun)"])} tahun<br>
+<b>Alamat:</b> ${isi(p.Alamat)}<br>
+<b>Desa:</b> ${isi(p.Desa)}<br>
+<b>Kecamatan:</b> ${isi(p.Kecamatan)}<br>
+<b>Kabupaten:</b> ${isi(p.Kabupaten)}<br>
 
-html += "<br><b>Koordinat Desa:</b><br>";
-html += "Lat: "+isi(p["Koordinat Desa (Latitude)"])+"<br>";
-html += "Long: "+isi(p["Koordinat Desa (Longitude)"])+"<br>";
+<br><b>Koordinat Desa:</b><br>
+Lat: ${isi(p["Koordinat Desa (Latitude)"])}<br>
+Long: ${isi(p["Koordinat Desa (Longitude)"])}<br>
 
-html += "<br><b>Koordinat Calon Lokasi Persemaian:</b><br>";
-html += "X: "+isi(p["Koordinat Calon Lokasi Persemaian (X)"])+"<br>";
-html += "Y: "+isi(p["Koordinat Calon Lokasi Persemaian (Y)"])+"<br>";
+<br><b>Koordinat Calon Lokasi Persemaian:</b><br>
+X: ${isi(p["Koordinat Calon Lokasi Persemaian (X)"])}<br>
+Y: ${isi(p["Koordinat Calon Lokasi Persemaian (Y)"])}<br>
 
-html += "<br><b>Koordinat Calon Lokasi Penanaman:</b><br>";
-html += "X: "+isi(p["Koordinat Calon Lokasi Penanaman (X)"])+"<br>";
-html += "Y: "+isi(p["Koordinat Calon Lokasi Penanaman (Y)"])+"<br>";
+<br><b>Koordinat Calon Lokasi Penanaman:</b><br>
+X: ${isi(p["Koordinat Calon Lokasi Penanaman (X)"])}<br>
+Y: ${isi(p["Koordinat Calon Lokasi Penanaman (Y)"])}<br>
 
-html += "<br><b>Penyuluh Kehutanan Pendamping:</b> "+isi(p["Penyuluh Kehutanan Pendamping"]||"Tidak ada penyuluh")+"<br>";
+<br><b>Penyuluh:</b> ${isi(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh")}<br>
 
-html += "<br><b>Keterangan:</b><br>"+isi(p.Keterangan)+"<br>";
+<br><b>Keterangan:</b><br>
+${isi(p.Keterangan)}<br>
 
-html += "<b>CDK:</b> "+isi(p.CDK)+"<br>";
+<b>CDK:</b> ${isi(p.CDK)}
+`;
 });
 
 html += "</div>";
@@ -296,15 +353,15 @@ backgroundColor:Object.keys(data).map(getColor)
 // ================= LEGEND =================
 function updateLegend(){
 
-let div = document.getElementById("legend");
-div.innerHTML = "<b>CDK</b><br>";
+let div=document.getElementById("legend");
+div.innerHTML="<b>CDK</b><br>";
 
 ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"]
 .forEach(c=>{
 
-let aktif = activeCDK.includes(c);
+let aktif=activeCDK.includes(c);
 
-div.innerHTML += `
+div.innerHTML+=`
 <div onclick="toggleCDK('${c}')" style="opacity:${aktif?1:0.3}">
 <span style="background:${getColor(c)};
 display:inline-block;width:12px;height:12px;"></span> ${c}
