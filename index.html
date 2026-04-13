@@ -126,13 +126,22 @@ function normalize(t){
 return (t||"").toLowerCase().replace(/kabupaten|kota/g,"").trim();
 }
 
-// ================= COLOR =================
 function getColor(c){
 return {
 "CDK I":"red","CDK II":"blue","CDK III":"green",
 "CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
 "CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
 }[c]||"black";
+}
+
+// ================= SPREAD =================
+function spreadPoints(lat, lon, index, total){
+let angle = (index / total) * (2 * Math.PI);
+let radius = 0.0005;
+return [
+lat + (radius * Math.cos(angle)),
+lon + (radius * Math.sin(angle))
+];
 }
 
 // ================= POINT IN POLYGON =================
@@ -189,8 +198,6 @@ updateMap();
 fetch("./Jawa Barattt.geojson")
 .then(r=>r.json())
 .then(data=>{
-
-console.log("POLYGON DATA:", data);
 
 L.geoJSON(data,{
 style:{
@@ -315,15 +322,7 @@ if(pen!==selectedPenyuluh) return;
 if(!activeCDK.includes(p.CDK)) return;
 
 // GROUP
-let penyuluh = p["Penyuluh Kehutanan Pendamping"];
-let key;
-
-if(!penyuluh){
-key = lat.toFixed(6)+"_"+lon.toFixed(6)+"_"+Math.random();
-}else{
-key = lat.toFixed(6)+"_"+lon.toFixed(6);
-}
-
+let key = lat.toFixed(6)+"_"+lon.toFixed(6);
 if(!grouped[key]) grouped[key]=[];
 grouped[key].push({...p,lat,lon});
 
@@ -335,14 +334,13 @@ total++;
 // ================= DRAW =================
 Object.values(grouped).forEach(group=>{
 
-let lat=group[0].lat;
-let lon=group[0].lon;
-
 let penyuluhList = [...new Set(group.map(p=>p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh"))];
+let cdkList = [...new Set(group.map(p=>p.CDK))];
 
 let html = `<div class="popup-scroll">
 <b style="font-size:14px;">Data Petugas Jaga Leuweung</b>
 <br><b>Penyuluh:</b> ${penyuluhList.join(", ")}
+<br><b>CDK:</b> ${cdkList.join(", ")}
 <br><b>Jumlah Anggota:</b> ${group.length}
 `;
 
@@ -369,7 +367,7 @@ Y: ${isi(p["Koordinat Calon Lokasi Persemaian (Y)"])}<br>
 X: ${isi(p["Koordinat Calon Lokasi Penanaman (X)"])}<br>
 Y: ${isi(p["Koordinat Calon Lokasi Penanaman (Y)"])}<br>
 
-<br><b>Penyuluh Kehutanan Pendamping:</b> ${isi(p["Penyuluh Kehutanan Pendamping"] || "Tidak ada penyuluh")}<br>
+<br><b>Penyuluh Kehutanan Pendamping:</b> ${isi(p["Penyuluh Kehutanan Pendamping"])}<br>
 
 <br><b>Keterangan:</b><br>
 ${isi(p.Keterangan)}<br>
@@ -380,15 +378,28 @@ ${isi(p.Keterangan)}<br>
 
 html += "</div>";
 
+// SPREAD MARKER
+group.forEach((p,i)=>{
+let lat = p.lat;
+let lon = p.lon;
+
+if(group.length > 1){
+let s = spreadPoints(lat, lon, i, group.length);
+lat = s[0];
+lon = s[1];
+}
+
 L.circleMarker([lat,lon],{
 radius:2,
-color:getColor(group[0].CDK),
-fillColor:getColor(group[0].CDK),
+color:getColor(p.CDK),
+fillColor:getColor(p.CDK),
 fillOpacity:1,
 weight:1
 })
 .bindPopup(html)
 .addTo(markersLayer);
+
+});
 
 });
 
