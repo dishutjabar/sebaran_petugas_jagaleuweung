@@ -33,7 +33,7 @@ background:white;
 padding:10px;
 border-radius:10px;
 z-index:1000;
-width:260px;
+width:270px;
 }
 
 .popup-scroll{
@@ -51,7 +51,12 @@ padding:10px;
 border-radius:8px;
 z-index:1000;
 }
-.legend div{cursor:pointer;margin-bottom:5px;}
+
+.search-box{
+margin-top:5px;
+width:100%;
+padding:5px;
+}
 </style>
 </head>
 <body>
@@ -60,9 +65,10 @@ z-index:1000;
 <div id="map"></div>
 
 <div class="panel">
-<b>Filter Penyuluh</b>
-<select id="filterPenyuluh"></select><br><br>
+<input type="text" id="search" class="search-box" placeholder="Cari Penyuluh / CDK / Kabupaten">
+<button onclick="searchData()">Cari</button>
 
+<br><br>
 <b>Total Titik:</b> <span id="total">0</span>
 
 <canvas id="chart"></canvas>
@@ -75,7 +81,18 @@ z-index:1000;
 // ================= MAP =================
 var map = L.map('map').setView([-6.9,107.6],8);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+// BASEMAP
+var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+var satelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+var terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');
+
+osm.addTo(map);
+
+L.control.layers({
+"OSM": osm,
+"Satelit": satelit,
+"Terrain": terrain
+}).addTo(map);
 
 // ================= GLOBAL =================
 let allData;
@@ -83,21 +100,15 @@ let markersLayer = L.layerGroup().addTo(map);
 let chart;
 
 let activeCDK = ["CDK I","CDK II","CDK III","CDK IV","CDK V","CDK VI","CDK VII","CDK VIII","CDK IX"];
-let selectedPenyuluh = null;
 let selectedKab = null;
+let searchKeyword = "";
 
-// ================= WARNA CDK =================
+// ================= COLOR =================
 function getColor(c){
 return {
-"CDK I":"red",
-"CDK II":"blue",
-"CDK III":"green",
-"CDK IV":"orange",
-"CDK V":"purple",
-"CDK VI":"brown",
-"CDK VII":"pink",
-"CDK VIII":"gray",
-"CDK IX":"black"
+"CDK I":"red","CDK II":"blue","CDK III":"green",
+"CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
+"CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
 }[c] || "black";
 }
 
@@ -111,11 +122,10 @@ return (v==null||v=="")?"-":v;
 }
 
 // ================= LOAD DATA =================
-fetch("Jaga Leuweung.geojson")
+fetch("Jaga.geojson")
 .then(r=>r.json())
 .then(data=>{
 allData = data.features;
-initFilter();
 updateMap();
 });
 
@@ -128,12 +138,12 @@ L.geoJSON(data,{
 style:{color:"black",weight:1,fillOpacity:0.1},
 
 onEachFeature:(f,l)=>{
-let id = f.properties.KAB_KOTA;
+let nama = f.properties.KAB_KOTA;
 
-l.bindPopup("<b>"+id+"</b>");
+l.bindPopup("<b>"+nama+"</b>");
 
 l.on("click",()=>{
-selectedKab = id;
+selectedKab = nama;
 updateMap();
 map.fitBounds(l.getBounds());
 });
@@ -141,30 +151,6 @@ map.fitBounds(l.getBounds());
 }).addTo(map);
 
 });
-
-// ================= FILTER =================
-function initFilter(){
-let set = new Set();
-
-allData.forEach(f=>{
-set.add(f.properties["Penyuluh Kehutanan Pendamping"]);
-});
-
-let sel = document.getElementById("filterPenyuluh");
-sel.innerHTML = "<option value=''>Semua</option>";
-
-set.forEach(p=>{
-let o=document.createElement("option");
-o.value=p;
-o.innerHTML=p;
-sel.appendChild(o);
-});
-
-sel.onchange = ()=>{
-selectedPenyuluh = sel.value || null;
-updateMap();
-};
-}
 
 // ================= UPDATE =================
 function updateMap(){
@@ -184,17 +170,24 @@ let lon = fixNumber(p["Koordinat Desa (Longitude)"]);
 
 if(!lat || !lon) return;
 
-// FILTER
-if(selectedPenyuluh && p["Penyuluh Kehutanan Pendamping"] !== selectedPenyuluh) return;
+// FILTER KAB
 if(selectedKab && p.Kabupaten !== selectedKab) return;
+
+// FILTER CDK
 if(!activeCDK.includes(p.CDK)) return;
 
+// SEARCH
+let text = JSON.stringify(p).toLowerCase();
+if(searchKeyword && !text.includes(searchKeyword)) return;
+
+// GROUP
 let key = p["Penyuluh Kehutanan Pendamping"] || "Tanpa Penyuluh";
 
 if(!grouped[key]) grouped[key] = [];
 
 grouped[key].push({...p, lat, lon});
 
+// STAT tetap hitung semua
 countCDK[p.CDK] = (countCDK[p.CDK]||0)+1;
 total++;
 });
@@ -261,7 +254,7 @@ updateChart(countCDK);
 updateLegend();
 }
 
-// ================= PIE =================
+// ================= CHART =================
 function updateChart(data){
 
 if(chart) chart.destroy();
@@ -278,7 +271,7 @@ backgroundColor:Object.keys(data).map(getColor)
 });
 }
 
-// ================= LEGENDA =================
+// ================= LEGEND =================
 function updateLegend(){
 
 let div = document.getElementById("legend");
@@ -306,6 +299,13 @@ activeCDK.push(c);
 updateMap();
 }
 
+// ================= SEARCH =================
+function searchData(){
+searchKeyword = document.getElementById("search").value.toLowerCase();
+updateMap();
+}
+
 </script>
+
 </body>
 </html>
