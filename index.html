@@ -141,6 +141,16 @@ return {
 }[c]||"#000000";
 }
 
+// ====== RADIUS RESPONSIVE ======
+function getRadius(){
+let w = window.innerWidth;
+
+if(w <= 480) return 7;     // HP kecil
+if(w <= 768) return 6;     // HP besar / tablet
+if(w <= 1200) return 5;    // laptop
+return 4;                  // desktop
+}
+
 // ================= SPREAD =================
 function spreadPoints(lat, lon, index, total){
 let angle = (index / total) * (2 * Math.PI);
@@ -384,7 +394,7 @@ ${isi(p.Keterangan)}<br>
 
 html += "</div>";
 
-// MARKER DIPERBESAR
+// MARKER RESPONSIVE
 group.forEach((p,i)=>{
 let lat = p.lat;
 let lon = p.lon;
@@ -396,7 +406,7 @@ lon = s[1];
 }
 
 L.circleMarker([lat,lon],{
-radius:3.5,
+radius:getRadius(),
 color:getColor(p.CDK),
 fillColor:getColor(p.CDK),
 fillOpacity:1,
@@ -429,6 +439,9 @@ backgroundColor:Object.keys(data).map(getColor)
 }
 });
 }
+
+// RESPONSIVE UPDATE
+window.addEventListener("resize", updateMap);
 
 </script>
 
