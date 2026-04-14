@@ -126,12 +126,19 @@ function normalize(t){
 return (t||"").toLowerCase().replace(/kabupaten|kota/g,"").trim();
 }
 
+// ====== WARNA DIPERTEGAS ======
 function getColor(c){
 return {
-"CDK I":"red","CDK II":"blue","CDK III":"green",
-"CDK IV":"orange","CDK V":"purple","CDK VI":"brown",
-"CDK VII":"pink","CDK VIII":"gray","CDK IX":"black"
-}[c]||"black";
+"CDK I":"#ff0000",
+"CDK II":"#0055ff",
+"CDK III":"#00aa00",
+"CDK IV":"#ff8800",
+"CDK V":"#8000ff",
+"CDK VI":"#8b4513",
+"CDK VII":"#ff1493",
+"CDK VIII":"#555555",
+"CDK IX":"#000000"
+}[c]||"#000000";
 }
 
 // ================= SPREAD =================
@@ -201,10 +208,9 @@ fetch("./Jawa Barattt.geojson")
 
 L.geoJSON(data,{
 style:{
-color:"red",
-weight:0.5,
-fillColor:"yellow",
-fillOpacity:0.2
+color:"black",
+weight:1.2,
+fillOpacity:0
 },
 
 onEachFeature:(f,l)=>{
@@ -378,7 +384,7 @@ ${isi(p.Keterangan)}<br>
 
 html += "</div>";
 
-// SPREAD MARKER
+// MARKER DIPERBESAR
 group.forEach((p,i)=>{
 let lat = p.lat;
 let lon = p.lon;
@@ -390,11 +396,11 @@ lon = s[1];
 }
 
 L.circleMarker([lat,lon],{
-radius:2,
+radius:5,
 color:getColor(p.CDK),
 fillColor:getColor(p.CDK),
 fillOpacity:1,
-weight:1
+weight:1.5
 })
 .bindPopup(html)
 .addTo(markersLayer);
